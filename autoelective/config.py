@@ -6,8 +6,10 @@
 import os
 import re
 from configparser import RawConfigParser, DuplicateSectionError
+from collections import OrderedDict
 from .environ import Environ
 from .course import Course
+from .rule import Mutex, Delay
 from .utils import Singleton
 from .const import DEFAULT_CONFIG_INI
 from .exceptions import UserInputException
@@ -54,7 +56,7 @@ class BaseConfig(object):
 
     def ns_sections(self, ns):
         ns = ns.strip()
-        ns_sects = {} # { id: str(section) }
+        ns_sects = OrderedDict() # { id: str(section) }
         for s in self._config.sections():
             mat = _reNamespacedSection.match(s)
             if mat is None:
@@ -149,7 +151,7 @@ class AutoElectiveConfig(BaseConfig, metaclass=Singleton):
 
     @property
     def courses(self):
-        cs = {}  # { id: Course }
+        cs = OrderedDict()  # { id: Course }
         rcs = {}
         for id_, s in self.ns_sections('course'):
             d = self.getdict(s, ('name','class','school'))
@@ -166,11 +168,29 @@ class AutoElectiveConfig(BaseConfig, metaclass=Singleton):
 
     @property
     def mutexes(self):
-        ms = {}  # { id: [str] }
+        ms = OrderedDict()  # { id: Mutex }
         for id_, s in self.ns_sections('mutex'):
             lst = self.getlist(s, 'courses')
-            ms[id_] = lst
+            ms[id_] = Mutex(lst)
         return ms
+
+    # [delay]
+
+    @property
+    def delays(self):
+        ds = OrderedDict()  # { id: Delay }
+        cid_id = {} # { cid: id }
+        for id_, s in self.ns_sections('delay'):
+            cid = self.get(s, 'course')
+            threshold = self.getint(s, 'threshold')
+            if not threshold > 0:
+                raise UserInputException("Invalid threshold %d in 'delay:%s', threshold > 0 must be satisfied" % (threshold, id_))
+            id0 = cid_id.get(cid)
+            if id0 is not None:
+                raise UserInputException("Duplicated delays of 'course:%s' in 'delay:%s' and 'delay:%s'" % (cid, id0, id_))
+            cid_id[cid] = id_
+            ds[id_] = Delay(cid, threshold)
+        return ds
 
     ## Method
 
